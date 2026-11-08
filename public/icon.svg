@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#090d16"/>
+      <stop offset="50%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#eab308"/>
+      <stop offset="50%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+    <radialGradient id="glass" cx="40%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.8"/>
+      <stop offset="45%" stop-color="#1e3a8a" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#020617"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background rounded squircle -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+
+  <!-- Outer dual ring -->
+  <circle cx="256" cy="256" r="180" fill="none" stroke="url(#ring)" stroke-width="12"/>
+
+  <!-- Optical lens barrel -->
+  <circle cx="256" cy="256" r="162" fill="#1e293b"/>
+  <circle cx="256" cy="256" r="135" fill="url(#glass)"/>
+
+  <!-- 9:16 Portrait crop guide (Gold) -->
+  <rect x="202" y="148" width="108" height="216" rx="10" fill="none" stroke="#eab308" stroke-width="4" stroke-dasharray="8 6"/>
+
+  <!-- 16:9 Landscape crop guide (Blue) -->
+  <rect x="148" y="202" width="216" height="108" rx="10" fill="none" stroke="#60a5fa" stroke-width="4" stroke-dasharray="8 6"/>
+
+  <!-- Center Shutter Record Button -->
+  <circle cx="256" cy="256" r="44" fill="#ef4444" stroke="#ffffff" stroke-width="6"/>
+
+  <!-- Dual indicator badge top right -->
+  <rect x="360" y="44" width="100" height="34" rx="17" fill="#eab308"/>
+  <text x="410" y="66" fill="#000000" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="900" text-anchor="middle">9:16+16:9</text>
+</svg>

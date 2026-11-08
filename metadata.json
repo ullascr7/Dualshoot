@@ -1,0 +1,6 @@
+{
+  "name": "DualShot - Simultaneous Dual Aspect Camera & Gallery",
+  "description": "Record video and take photos vertically (9:16) and horizontally (16:9) at the same time for TikTok and YouTube, with real-time mode switching and intuitive gallery.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
