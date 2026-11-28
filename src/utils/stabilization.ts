@@ -82,3 +82,19 @@ export function applyStabilizationOffset(
     sy: adjustedSy,
   };
 }
+
+/**
+ * Zero-allocation in-place stabilizer crop adjustment for 60fps requestAnimationFrame loops.
+ */
+export function applyStabilizationOffsetMutate(
+  crop: CropRect,
+  compX: number,
+  compY: number,
+  srcWidth: number,
+  srcHeight: number
+): void {
+  const maxSx = Math.max(0, srcWidth - crop.sWidth);
+  const maxSy = Math.max(0, srcHeight - crop.sHeight);
+  crop.sx = Math.round(Math.max(0, Math.min(maxSx, crop.sx + compX)));
+  crop.sy = Math.round(Math.max(0, Math.min(maxSy, crop.sy + compY)));
+}

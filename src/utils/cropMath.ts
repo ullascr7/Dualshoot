@@ -143,6 +143,23 @@ export function calculateCameraFilter(
 }
 
 /**
+ * Returns 'none' when camera tuning values are neutral so live hardware <video>
+ * elements bypass multi-pass CSS shader compositing and run at zero-copy 60fps.
+ */
+export function calculateLivePreviewFilter(
+  exposure: number,
+  focusMode: 'auto' | 'manual',
+  focusDistance: number,
+  whiteBalance: 'auto' | 'daylight' | 'cloudy' | 'tungsten' | 'fluorescent'
+): string {
+  const isNeutralFocus = focusMode !== 'manual' || Math.abs(focusDistance - 0.5) <= 0.08;
+  if (Math.abs(exposure) < 0.05 && whiteBalance === 'auto' && isNeutralFocus) {
+    return 'none';
+  }
+  return calculateCameraFilter(exposure, focusMode, focusDistance, whiteBalance);
+}
+
+/**
  * Calculates the bounding box of the horizontal 16:9 safe zone
  * when viewed inside a vertical 9:16 screen/viewfinder.
  * Returns normalized percentages [0..1] for CSS positioning.
@@ -245,4 +262,78 @@ export function formatBytes(bytes: number): string {
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+}
+
+/**
+ * Zero-allocation 60fps crop calculation that mutates caller-owned CropRect objects
+ * to avoid per-frame garbage collection inside requestAnimationFrame.
+ */
+export function calculateAspectCropsInto(
+  srcWidth: number,
+  srcHeight: number,
+  zoom: number,
+  outPortrait: CropRect,
+  outLandscape: CropRect
+): void {
+  const safeSrcW = Math.max(1, srcWidth);
+  const safeSrcH = Math.max(1, srcHeight);
+  const safeZoom = Math.max(1.0, Math.min(10.0, zoom));
+  const currentRatio = safeSrcW / safeSrcH;
+
+  const targetPortraitRatio = 9 / 16;
+  let basePSw = safeSrcW;
+  let basePSh = safeSrcH;
+  if (currentRatio > targetPortraitRatio) {
+    basePSw = safeSrcH * targetPortraitRatio;
+  } else {
+    basePSh = safeSrcW / targetPortraitRatio;
+  }
+  const pSw = basePSw / safeZoom;
+  const pSh = basePSh / safeZoom;
+  outPortrait.sx = Math.round(Math.max(0, Math.min(safeSrcW - pSw, (safeSrcW - pSw) / 2)));
+  outPortrait.sy = Math.round(Math.max(0, Math.min(safeSrcH - pSh, (safeSrcH - pSh) / 2)));
+  outPortrait.sWidth = Math.round(pSw);
+  outPortrait.sHeight = Math.round(pSh);
+  outPortrait.dWidth = 1080;
+  outPortrait.dHeight = 1920;
+
+  const targetLandscapeRatio = 16 / 9;
+  let baseLSw = safeSrcW;
+  let baseLSh = safeSrcH;
+  if (currentRatio > targetLandscapeRatio) {
+    baseLSw = safeSrcH * targetLandscapeRatio;
+  } else {
+    baseLSh = safeSrcW / targetLandscapeRatio;
+  }
+  const lSw = baseLSw / safeZoom;
+  const lSh = baseLSh / safeZoom;
+  outLandscape.sx = Math.round(Math.max(0, Math.min(safeSrcW - lSw, (safeSrcW - lSw) / 2)));
+  outLandscape.sy = Math.round(Math.max(0, Math.min(safeSrcH - lSh, (safeSrcH - lSh) / 2)));
+  outLandscape.sWidth = Math.round(lSw);
+  outLandscape.sHeight = Math.round(lSh);
+  outLandscape.dWidth = 1920;
+  outLandscape.dHeight = 1080;
+}
+
+/**
+ * Computes native full-resolution still photo dimensions from sensor output
+ * without artificial downscaling to preview size.
+ */
+export function calculateFullResolutionPhotoDimensions(
+  sensorWidth: number,
+  sensorHeight: number,
+  zoom: number = 1.0
+): {
+  portraitWidth: number;
+  portraitHeight: number;
+  landscapeWidth: number;
+  landscapeHeight: number;
+} {
+  const crops = calculateAspectCrops(sensorWidth, sensorHeight, zoom);
+  return {
+    portraitWidth: Math.max(1080, crops.portrait.sWidth),
+    portraitHeight: Math.max(1920, crops.portrait.sHeight),
+    landscapeWidth: Math.max(1920, crops.landscape.sWidth),
+    landscapeHeight: Math.max(1080, crops.landscape.sHeight),
+  };
 }

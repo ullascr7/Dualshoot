@@ -1,17 +1,18 @@
 import React, { useState } from 'react';
+import { Capacitor } from '@capacitor/core';
 import {
   X,
   Play,
-  Image as ImageIcon,
-  Video,
   Download,
-  Trash2,
   Layers,
   Sparkles,
+  CheckCircle2,
 } from 'lucide-react';
 import { DualCaptureSession } from '../types/camera';
 import { formatBytes, formatDuration } from '../utils/cropMath';
 import { DualMediaPreview } from './DualMediaPreview';
+import { OEM_CONFIG } from '../config/oemConfig';
+import { saveMediaToAndroidGallery } from '../utils/indexedDb';
 
 interface GalleryModalProps {
   isOpen: boolean;
@@ -19,6 +20,7 @@ interface GalleryModalProps {
   sessions: DualCaptureSession[];
   onDeleteSession: (id: string) => void;
   onSelectCapture: (session: DualCaptureSession) => void;
+  showWatermark?: boolean;
 }
 
 export const GalleryModal: React.FC<GalleryModalProps> = ({
@@ -26,11 +28,20 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
   onClose,
   sessions,
   onDeleteSession,
+  showWatermark = OEM_CONFIG.showBrandWatermark,
 }) => {
   const [filter, setFilter] = useState<'all' | 'video' | 'photo'>('all');
   const [activeSession, setActiveSession] = useState<DualCaptureSession | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   if (!isOpen) return null;
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage((prev) => (prev === msg ? null : prev));
+    }, 3000);
+  };
 
   const filtered = sessions.filter((s) => {
     if (filter === 'video') return s.type === 'video';
@@ -47,17 +58,59 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
     document.body.removeChild(a);
   };
 
-  const downloadBoth = (s: DualCaptureSession, e: React.MouseEvent) => {
+  const resolveExt = (type: 'photo' | 'video', media: { blob?: Blob; url: string }) => {
+    if (type !== 'video') return 'jpg';
+    if (media.blob?.type.includes('mp4') || media.url.includes('.mp4')) return 'mp4';
+    return 'webm';
+  };
+
+  const downloadBoth = async (s: DualCaptureSession, e: React.MouseEvent) => {
     e.stopPropagation();
-    const ext = s.type === 'video' ? 'webm' : 'jpg';
-    downloadFile(s.verticalMedia.url, `DualShot_${s.id}_Portrait_9-16.${ext}`);
-    setTimeout(() => {
-      downloadFile(s.horizontalMedia.url, `DualShot_${s.id}_Landscape_16-9.${ext}`);
-    }, 400);
+
+    try {
+      if (Capacitor.isNativePlatform()) {
+        const [vRes, hRes] = await Promise.all([
+          saveMediaToAndroidGallery(
+            s.verticalMedia.blob || s.verticalMedia.url,
+            `${OEM_CONFIG.appName}_${s.id}_Portrait_9-16`,
+            s.type
+          ),
+          saveMediaToAndroidGallery(
+            s.horizontalMedia.blob || s.horizontalMedia.url,
+            `${OEM_CONFIG.appName}_${s.id}_Landscape_16-9`,
+            s.type
+          ),
+        ]);
+        showToast(
+          vRes.savedToDeviceGallery || hRes.savedToDeviceGallery
+            ? `Saved 9:16 & 16:9 to ${OEM_CONFIG.appName} Gallery`
+            : 'Unable to save to device gallery right now'
+        );
+        return;
+      }
+
+      const vExt = resolveExt(s.type, s.verticalMedia);
+      const hExt = resolveExt(s.type, s.horizontalMedia);
+      downloadFile(s.verticalMedia.url, `${OEM_CONFIG.appName}_${s.id}_Portrait_9-16.${vExt}`);
+      setTimeout(() => {
+        downloadFile(s.horizontalMedia.url, `${OEM_CONFIG.appName}_${s.id}_Landscape_16-9.${hExt}`);
+        showToast('Saved both 9:16 & 16:9 formats');
+      }, 400);
+    } catch {
+      showToast('Could not save files right now.');
+    }
   };
 
   return (
     <div className="absolute inset-0 z-50 bg-neutral-950 flex flex-col text-white animate-in fade-in duration-200">
+      {/* Confirmation Toast */}
+      {toastMessage && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-[60] px-3.5 py-2 rounded-xl bg-emerald-600/95 text-white text-xs font-semibold shadow-xl border border-emerald-400/50 flex items-center gap-2 whitespace-nowrap">
+          <CheckCircle2 className="w-4 h-4 text-white shrink-0" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="w-full px-5 py-4 flex items-center justify-between border-b border-neutral-800 bg-black/60 backdrop-blur-md">
         <div className="flex items-center gap-2">
@@ -160,12 +213,12 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
                         </div>
                       </div>
 
-                      {/* Download Both quick button */}
+                      {/* Download / Save Both quick button */}
                       <button
                         onClick={(e) => downloadBoth(s, e)}
                         className="p-2 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-amber-400 transition-colors"
-                        title="Download Both Formats"
-                        aria-label="Download Both"
+                        title="Save Both Formats"
+                        aria-label="Save Both"
                       >
                         <Download className="w-4 h-4" />
                       </button>
@@ -193,6 +246,7 @@ export const GalleryModal: React.FC<GalleryModalProps> = ({
       {activeSession && (
         <DualMediaPreview
           session={activeSession}
+          showWatermark={showWatermark}
           onClose={() => setActiveSession(null)}
           onDelete={(id) => {
             onDeleteSession(id);

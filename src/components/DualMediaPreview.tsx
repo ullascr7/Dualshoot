@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
+import { Capacitor } from '@capacitor/core';
 import {
   Play,
   Pause,
@@ -12,32 +13,46 @@ import {
   ArrowRightLeft,
   Smartphone,
   Tv,
+  CheckCircle2,
 } from 'lucide-react';
 import { DualCaptureSession } from '../types/camera';
-import { formatBytes, formatDuration } from '../utils/cropMath';
+import { formatDuration } from '../utils/cropMath';
+import { OEM_CONFIG } from '../config/oemConfig';
+import { saveMediaToAndroidGallery } from '../utils/indexedDb';
 
 interface DualMediaPreviewProps {
   session: DualCaptureSession;
   onClose: () => void;
   onDelete: (id: string) => void;
+  showWatermark?: boolean;
 }
 
 export const DualMediaPreview: React.FC<DualMediaPreviewProps> = ({
   session,
   onClose,
   onDelete,
+  showWatermark = OEM_CONFIG.showBrandWatermark,
 }) => {
-  // View mode: 'side-by-side' | 'toggle'
   const [activeAspect, setActiveAspect] = useState<'9:16' | '16:9'>('9:16');
   const [isPlaying, setIsPlaying] = useState(true);
   const [isMuted, setIsMuted] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(session.duration || 0);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const videoRefPortrait = useRef<HTMLVideoElement>(null);
   const videoRefLandscape = useRef<HTMLVideoElement>(null);
 
   const isVideo = session.type === 'video';
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage((prev) => (prev === msg ? null : prev));
+    }, 3000);
+  };
 
   // Synchronized playback controls
   const togglePlay = () => {
@@ -68,8 +83,14 @@ export const DualMediaPreview: React.FC<DualMediaPreviewProps> = ({
     if (videoRefLandscape.current) videoRefLandscape.current.currentTime = time;
   };
 
-  // Download single file
-  const downloadFile = (url: string, filename: string) => {
+  const resolveExt = (media: { blob?: Blob; url: string }) => {
+    if (!isVideo) return 'jpg';
+    if (media.blob?.type.includes('mp4') || media.url.includes('.mp4')) return 'mp4';
+    return 'webm';
+  };
+
+  // Browser fallback file download
+  const triggerBrowserDownload = (url: string, filename: string) => {
     const a = document.createElement('a');
     a.href = url;
     a.download = filename;
@@ -78,13 +99,76 @@ export const DualMediaPreview: React.FC<DualMediaPreviewProps> = ({
     document.body.removeChild(a);
   };
 
-  // Download both files simultaneously
-  const downloadBoth = () => {
-    const ext = isVideo ? 'webm' : 'jpg';
-    downloadFile(session.verticalMedia.url, `DualShot_${session.id}_Portrait_9-16.${ext}`);
-    setTimeout(() => {
-      downloadFile(session.horizontalMedia.url, `DualShot_${session.id}_Landscape_16-9.${ext}`);
-    }, 400);
+  // Save single file (Native Android DCIM/Gallery via Capacitor, or Browser download)
+  const saveSingleMedia = async (aspect: '9:16' | '16:9') => {
+    const file = aspect === '9:16' ? session.verticalMedia : session.horizontalMedia;
+    const baseFilename = `${OEM_CONFIG.appName}_${aspect.replace(':', '-')}_${session.id}`;
+    const ext = resolveExt(file);
+
+    try {
+      if (Capacitor.isNativePlatform()) {
+        setIsSaving(true);
+        const res = await saveMediaToAndroidGallery(
+          file.blob || file.url,
+          baseFilename,
+          session.type
+        );
+        setIsSaving(false);
+        showToast(res.message);
+        return;
+      }
+
+      triggerBrowserDownload(file.url, `${baseFilename}.${ext}`);
+      showToast(`Saved ${aspect} ${session.type}`);
+    } catch {
+      setIsSaving(false);
+      showToast('Could not export file. Please try again.');
+    }
+  };
+
+  // Save/Download both files simultaneously
+  const downloadBoth = async () => {
+    try {
+      if (Capacitor.isNativePlatform()) {
+        setIsSaving(true);
+        const [vRes, hRes] = await Promise.all([
+          saveMediaToAndroidGallery(
+            session.verticalMedia.blob || session.verticalMedia.url,
+            `${OEM_CONFIG.appName}_${session.id}_Portrait_9-16`,
+            session.type
+          ),
+          saveMediaToAndroidGallery(
+            session.horizontalMedia.blob || session.horizontalMedia.url,
+            `${OEM_CONFIG.appName}_${session.id}_Landscape_16-9`,
+            session.type
+          ),
+        ]);
+        setIsSaving(false);
+        showToast(
+          vRes.savedToDeviceGallery || hRes.savedToDeviceGallery
+            ? `Saved both 9:16 & 16:9 to ${OEM_CONFIG.appName} Gallery`
+            : 'Unable to save to device gallery right now'
+        );
+        return;
+      }
+
+      const vExt = resolveExt(session.verticalMedia);
+      const hExt = resolveExt(session.horizontalMedia);
+      triggerBrowserDownload(
+        session.verticalMedia.url,
+        `${OEM_CONFIG.appName}_${session.id}_Portrait_9-16.${vExt}`
+      );
+      setTimeout(() => {
+        triggerBrowserDownload(
+          session.horizontalMedia.url,
+          `${OEM_CONFIG.appName}_${session.id}_Landscape_16-9.${hExt}`
+        );
+        showToast('Saved both 9:16 & 16:9 formats');
+      }, 400);
+    } catch {
+      setIsSaving(false);
+      showToast('Could not save files right now.');
+    }
   };
 
   const handleShare = async () => {
@@ -92,20 +176,27 @@ export const DualMediaPreview: React.FC<DualMediaPreviewProps> = ({
       try {
         await navigator.share({
           title: session.title,
-          text: 'Dual-aspect recording captured with DualShot (9:16 + 16:9)',
+          text: `Dual-aspect recording captured with ${OEM_CONFIG.appName} (9:16 + 16:9)`,
           url: window.location.href,
         });
       } catch {
-        // User cancelled share
+        // User cancelled or share unavailable
       }
     } else {
-      // Fallback: download both
-      downloadBoth();
+      await downloadBoth();
     }
   };
 
   return (
     <div className="absolute inset-0 z-50 bg-black/95 backdrop-blur-2xl flex flex-col text-white animate-in fade-in duration-200 select-none">
+      {/* Confirmation Toast */}
+      {toastMessage && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-[60] px-3.5 py-2 rounded-xl bg-emerald-600/95 text-white text-xs font-semibold shadow-xl border border-emerald-400/50 flex items-center gap-2 whitespace-nowrap animate-in fade-in duration-150">
+          <CheckCircle2 className="w-4 h-4 text-white shrink-0" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
+
       {/* Top Header */}
       <div className="w-full px-4 py-3 flex items-center justify-between border-b border-neutral-800 bg-black/60">
         <button
@@ -133,19 +224,29 @@ export const DualMediaPreview: React.FC<DualMediaPreviewProps> = ({
           >
             <Share2 className="w-4 h-4" />
           </button>
-          <button
-            onClick={() => {
-              if (confirm('Delete this dual capture from gallery?')) {
+
+          {confirmDelete ? (
+            <button
+              onClick={() => {
                 onDelete(session.id);
                 onClose();
-              }
-            }}
-            className="w-9 h-9 rounded-full bg-red-950/40 border border-red-800/40 flex items-center justify-center text-red-400 hover:bg-red-900/60"
-            title="Delete Session"
-            aria-label="Delete Capture"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
+              }}
+              className="px-2.5 h-9 rounded-full bg-red-600 hover:bg-red-500 text-white text-[11px] font-bold flex items-center gap-1 transition-colors"
+              aria-label="Confirm Delete Capture"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete?</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="w-9 h-9 rounded-full bg-red-950/40 border border-red-800/40 flex items-center justify-center text-red-400 hover:bg-red-900/60"
+              title="Delete Session"
+              aria-label="Delete Capture"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -203,6 +304,18 @@ export const DualMediaPreview: React.FC<DualMediaPreviewProps> = ({
             <div className="absolute top-3 left-3 px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md text-[10px] font-mono text-amber-300 border border-amber-400/30">
               9:16 &bull; {session.verticalMedia.width}×{session.verticalMedia.height}
             </div>
+            {/* OEM Brand Watermark */}
+            {showWatermark && (
+              <div className="absolute bottom-3 right-3 px-2.5 py-1 rounded-md bg-black/60 backdrop-blur-md border border-white/15 flex items-center gap-1.5 pointer-events-none">
+                <span
+                  className="w-1.5 h-1.5 rounded-full"
+                  style={{ backgroundColor: OEM_CONFIG.primaryAccentColor }}
+                />
+                <span className="text-[10px] font-semibold tracking-wider text-white/90">
+                  {OEM_CONFIG.watermarkText}
+                </span>
+              </div>
+            )}
           </div>
         ) : (
           /* Landscape 16:9 Container */
@@ -229,11 +342,23 @@ export const DualMediaPreview: React.FC<DualMediaPreviewProps> = ({
             <div className="absolute top-3 left-3 px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md text-[10px] font-mono text-amber-300 border border-amber-400/30">
               16:9 &bull; {session.horizontalMedia.width}×{session.horizontalMedia.height}
             </div>
+            {/* OEM Brand Watermark */}
+            {showWatermark && (
+              <div className="absolute bottom-2.5 right-2.5 px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md border border-white/15 flex items-center gap-1.5 pointer-events-none">
+                <span
+                  className="w-1.5 h-1.5 rounded-full"
+                  style={{ backgroundColor: OEM_CONFIG.primaryAccentColor }}
+                />
+                <span className="text-[10px] font-semibold tracking-wider text-white/90">
+                  {OEM_CONFIG.watermarkText}
+                </span>
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* Synchronized Media Controls (Matching Panel 1 in user's image) */}
+      {/* Synchronized Media Controls */}
       <div className="w-full px-5 py-4 bg-neutral-900 border-t border-neutral-800 space-y-3">
         {/* Scrubber for video */}
         {isVideo && (
@@ -285,26 +410,26 @@ export const DualMediaPreview: React.FC<DualMediaPreviewProps> = ({
           </div>
         )}
 
-        {/* Export / Download Buttons */}
+        {/* Export / Save Buttons */}
         <div className="pt-2 grid grid-cols-2 gap-2">
           <button
-            onClick={() => {
-              const file = activeAspect === '9:16' ? session.verticalMedia : session.horizontalMedia;
-              const ext = isVideo ? 'webm' : 'jpg';
-              downloadFile(file.url, `DualShot_${activeAspect}_${session.id}.${ext}`);
-            }}
-            className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold border border-neutral-700 transition-colors"
+            onClick={() => saveSingleMedia(activeAspect)}
+            disabled={isSaving}
+            className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-neutral-800 hover:bg-neutral-700 disabled:opacity-60 text-neutral-200 text-xs font-semibold border border-neutral-700 transition-colors"
           >
             <Download className="w-4 h-4 text-amber-400" />
-            <span>Save Current ({activeAspect})</span>
+            <span>
+              {Capacitor.isNativePlatform() ? `Save to DCIM (${activeAspect})` : `Save Current (${activeAspect})`}
+            </span>
           </button>
 
           <button
             onClick={downloadBoth}
-            className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-black text-xs font-bold transition-all shadow-md shadow-amber-400/20"
+            disabled={isSaving}
+            className="flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-amber-400 hover:bg-amber-300 disabled:opacity-60 text-black text-xs font-bold transition-all shadow-md shadow-amber-400/20"
           >
             <Layers className="w-4 h-4" />
-            <span>Save Both Formats</span>
+            <span>{Capacitor.isNativePlatform() ? 'Save Both to DCIM' : 'Save Both Formats'}</span>
           </button>
         </div>
       </div>

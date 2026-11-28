@@ -23,6 +23,21 @@ function getAudioContext(): AudioContext | null {
 }
 
 /**
+ * Pre-warms Web Audio context on first user interaction to eliminate shutter click latency.
+ */
+export function prewarmAudioSfx(): void {
+  try {
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
+  } catch {
+    // Ignore audio context autoplay restrictions safely
+  }
+}
+
+/**
  * Play authentic camera shutter sound: two fast mechanical clicks
  */
 export function playShutterSound() {

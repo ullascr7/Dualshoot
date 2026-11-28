@@ -1,9 +1,27 @@
 export type LensMode = 'dual' | 'single';
+export type DualLayoutMode = 'single' | 'split' | 'pip';
 export type CaptureType = 'photo' | 'video';
+export type TimerDelay = 0 | 3 | 10;
 
 export type VideoQuality = '4K' | '1080p' | '720p';
 export type FrameRate = 24 | 30 | 60;
 export type FileFormat = 'mp4' | 'mov' | 'webm';
+
+export type CameraErrorKind = 'permission_denied' | 'device_busy' | 'not_found' | 'unknown';
+
+export interface HardwareQualityProfile {
+  detectedMaxWidth: number;
+  detectedMaxHeight: number;
+  activeWidth: number;
+  activeHeight: number;
+  activeFps: number;
+  qualityLabel: VideoQuality;
+  bitrateBps: number;
+  codecLabel: string;
+  concurrentDualSupported: boolean;
+  sequentialFallbackActive: boolean;
+  hardwareZoomRange?: { min: number; max: number };
+}
 
 export interface CameraSettings {
   videoQuality: VideoQuality;
@@ -15,6 +33,9 @@ export interface CameraSettings {
   gridGuides: boolean;
   demoSimulation: boolean; // Useful fallback / demo mode
   digitalStabilization: boolean; // Electronic Image Stabilization (EIS)
+  showWatermark?: boolean; // Optional OEM brand watermark
+  timerDelay?: TimerDelay; // Shutter timer delay (0, 3, 10s)
+  autoMaxQuality?: boolean; // Automatically match device max hardware capabilities
 }
 
 export interface MediaFile {

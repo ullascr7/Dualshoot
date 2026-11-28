@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   calculateAspectCrops,
+  calculateAspectCropsInto,
+  calculateFullResolutionPhotoDimensions,
   calculateLandscapeGuideInPortrait,
   estimateBitrateAndStorage,
   formatDuration,
@@ -115,4 +117,28 @@ test('calculateCameraFilter generates expected filter strings', () => {
 
   const manualDefocus = calculateCameraFilter(0, 'manual', 0.95, 'auto');
   assert.ok(manualDefocus.includes('blur('));
+});
+
+test('calculateAspectCropsInto matches calculateAspectCrops with zero allocations', () => {
+  const expected = calculateAspectCrops(3840, 2160, 1.5);
+  const outPortrait = { sx: 0, sy: 0, sWidth: 0, sHeight: 0, dWidth: 0, dHeight: 0 };
+  const outLandscape = { sx: 0, sy: 0, sWidth: 0, sHeight: 0, dWidth: 0, dHeight: 0 };
+
+  calculateAspectCropsInto(3840, 2160, 1.5, outPortrait, outLandscape);
+  assert.deepEqual(outPortrait, expected.portrait);
+  assert.deepEqual(outLandscape, expected.landscape);
+});
+
+test('calculateFullResolutionPhotoDimensions preserves high sensor resolution without downscaling to preview', () => {
+  const dims4K = calculateFullResolutionPhotoDimensions(3840, 2160, 1.0);
+  assert.equal(dims4K.landscapeWidth, 3840);
+  assert.equal(dims4K.landscapeHeight, 2160);
+  assert.ok(dims4K.portraitHeight >= 1920);
+  assert.ok(dims4K.portraitWidth >= 1080);
+
+  const dimsLow = calculateFullResolutionPhotoDimensions(640, 480, 1.0);
+  assert.equal(dimsLow.portraitWidth, 1080);
+  assert.equal(dimsLow.portraitHeight, 1920);
+  assert.equal(dimsLow.landscapeWidth, 1920);
+  assert.equal(dimsLow.landscapeHeight, 1080);
 });
